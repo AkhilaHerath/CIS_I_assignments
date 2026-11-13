@@ -50,7 +50,17 @@ def closest_points_on_mesh(points: np.ndarray, mesh: Mesh) -> Tuple[np.ndarray, 
     input: points (K,3) in CT coordinates, mesh
     output: closest (K,3), triangle index (K,), distance (K,)
     """
-    raise NotImplementedError("TODO: implement closest_points_on_mesh")
+    for i in range(len(points)):
+        p = points[i]       # each point
+        pv = vct3(p)          # convert to vct3
+        d = np.linalg.norm(p - mesh.centroids, axis=1)      # distance from point to triangle centroids
+        r = mesh.bounding_sphere_radius         # bounding sphere radius of each triangle
+        j = np.argmin(d)            # triangle with the closest centroid
+        verts = mesh.tri_vertices[j]        # triangle vertices
+        q = closest_point_on_triangle(pv, vct3(verts[0]), vct3(verts[1]), vct3(verts[2]))        # closest point on triangle
+        best = pv.distance(q)        # distance to beat
+    
+
 
 
 
