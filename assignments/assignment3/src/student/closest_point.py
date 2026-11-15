@@ -50,16 +50,42 @@ def closest_points_on_mesh(points: np.ndarray, mesh: Mesh) -> Tuple[np.ndarray, 
     input: points (K,3) in CT coordinates, mesh
     output: closest (K,3), triangle index (K,), distance (K,)
     """
-    for i in range(len(points)):
-        p = points[i]       # each point
-        pv = vct3(p)          # convert to vct3
+
+    # points = np.asarray(points, dtype=float).reshape(-1, 3)
+
+    closest = np.zeros((len(points), 3))
+    tri_index = np.zeros(len(points), dtype=int)
+    distances = np.zeros(len(points))
+
+    for k in range(len(points)):
+        p = points[k]
+        pv = vct3(p)
         d = np.linalg.norm(p - mesh.centroids, axis=1)      # distance from point to triangle centroids
-        r = mesh.bounding_sphere_radius         # bounding sphere radius of each triangle
-        j = np.argmin(d)            # triangle with the closest centroid
-        verts = mesh.tri_vertices[j]        # triangle vertices
-        q = closest_point_on_triangle(pv, vct3(verts[0]), vct3(verts[1]), vct3(verts[2]))        # closest point on triangle
-        best = pv.distance(q)        # distance to beat
-    
+        r = mesh.bounding_sphere_radius                     # bounding sphere radius of each triangle
+
+        # start with the triangle whose centroid is closest to the point
+        closest_tri = np.argmin(d)                                    # triangle with the closest centroid
+        verts = mesh.tri_vertices[closest_tri]                        # triangle vertices
+        qv = closest_point_on_triangle(pv, vct3(verts[0]), vct3(verts[1]), vct3(verts[2]))        # closest point on triangle
+        best = pv.distance(qv)                               # distance to beat
+        
+        # only check triangles whose bounding sphere intersects the best distance so far
+        survivors = np.where(d - r <= best)[0]               # triangles that could have a closer point
+        for tri in survivors:
+            verts = mesh.tri_vertices[tri]              
+            q = closest_point_on_triangle(pv, vct3(verts[0]), vct3(verts[1]), vct3(verts[2]))       
+            dist = pv.distance(q)
+            if dist < best:
+                best = dist
+                closest_tri = tri
+                qv = q
+
+        closest[k] = qv.vec.ravel()
+        tri_index[k] = closest_tri
+        distances[k] = best
+
+    return closest, tri_index, distances
+
 
 
 
