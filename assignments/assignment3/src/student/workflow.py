@@ -51,7 +51,6 @@ def design_scene() -> SceneDesign:
 
 def plan_patches(boxes: List[PatchBox], n_patches: int, samples_per_patch: int) -> List[int]:
     """
-    TODO: implement.
     input: the patch boxes, how many patches to use, samples per patch
     output: ordered list of patch ids to call place_pointer with (repeats allowed)
     """

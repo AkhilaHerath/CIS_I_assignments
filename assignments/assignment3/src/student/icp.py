@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from data_types.nominal_types import vct3, Frame
+from data_types.nominal_types import vct3, Frame, Rot
 from ..mesh import Mesh, PatchBox
 
 
@@ -21,14 +21,58 @@ class IcpResult:
     converged: bool
     history: List[float] = field(default_factory=list)   # rms inlier residual per iteration
 
+COLLINEAR_TOL = 1e-6
 
 def register_points(a: List[vct3], b: List[vct3]) -> Frame:
     """
-    TODO: implement (your own; do not call the simulator's solver).
     input: paired points a_i, b_i (>= 3)
     output: least-squares Frame F with F * a_i ~= b_i
     """
-    raise NotImplementedError("TODO: implement register_points")
+    if len(a) != len(b):
+        raise ValueError("a and b must have the same number of points")
+    if len(a) < 3:
+        raise ValueError("need at least 3 points")
+
+    # turning the vct3 lists into numpy array -> each marker a,b becomes a row of A,B
+    A = []
+    for point in a:
+        A.append(np.array(point.vec).reshape(3))
+    B = []
+    for point in b:
+        B.append(np.array(point.vec).reshape(3))
+    A = np.array(A)
+    B = np.array(B)
+
+    # center of each set
+    a_mean = np.mean(A, axis=0)
+    b_mean = np.mean(B, axis=0)
+
+    # bring the center to the origin
+    A_c = A - a_mean
+    B_c = B - b_mean
+
+    # collinear points check
+    for centered in (A_c, B_c):
+        singular_values = np.linalg.svd(centered, compute_uv=False)
+        if singular_values[1] <= COLLINEAR_TOL * singular_values[0]:
+            raise ValueError("points are collinear")
+
+    # build H and get rotation using SVD
+    H = np.zeros((3,3))
+    for i in range(len(A_c)):
+        H = H + np.outer(B_c[i], A_c[i])
+    U, S, Vt = np.linalg.svd(H)     #h=USVt ->S is dropped so R=U*Vt
+    R = U @ Vt
+
+    # check if the rotation is a mirror image and fix
+    if np.linalg.det(R) < 0:    # +1 = real rotation; -1 = mirror image
+        U[:, 2] = -U[:, 2]
+        R = U @ Vt
+
+    # the translation -> b = Ra + p
+    p = b_mean - R @ a_mean
+
+    return Frame(Rot(matrix=R), vct3(p[0], p[1], p[2]))
 
 
 def coarse_registration(d_by_patch: Dict[int, np.ndarray], boxes: List[PatchBox]) -> Frame:
