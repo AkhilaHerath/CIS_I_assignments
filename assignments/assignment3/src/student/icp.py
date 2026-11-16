@@ -79,11 +79,17 @@ def register_points(a: List[vct3], b: List[vct3]) -> Frame:
 
 def coarse_registration(d_by_patch: Dict[int, np.ndarray], boxes: List[PatchBox]) -> Frame:
     """
-    TODO: implement.
     input: {patch id: (n_i,3) tip points in reference coordinates}, the patch boxes
     output: a rough F_reg (reference -> CT) from patch centroids <-> box centres
     """
-    raise NotImplementedError("TODO: implement coarse_registration")
+    centroid = []
+    box_centre = []
+    for patch_id, points in d_by_patch.items():
+        centroid.append(vct3(np.mean(points, axis=0)))
+        box_centre.append(vct3(boxes[patch_id].p))
+
+    F_coarse = register_points(centroid, box_centre)
+    return F_coarse
 
 
 def icp(d: np.ndarray, mesh: Mesh, F_init: Frame, max_iter: int = 100, tol: float = 1e-4,
