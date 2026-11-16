@@ -7,6 +7,8 @@ import numpy as np
 
 from data_types.nominal_types import vct3, Frame, Rot
 from ..mesh import Mesh, PatchBox
+from .closest_point import closest_points_on_mesh
+
 
 
 @dataclass
@@ -87,9 +89,59 @@ def coarse_registration(d_by_patch: Dict[int, np.ndarray], boxes: List[PatchBox]
 def icp(d: np.ndarray, mesh: Mesh, F_init: Frame, max_iter: int = 100, tol: float = 1e-4,
         reject: Optional[str] = "mad") -> IcpResult:
     """
-    TODO: implement.
     input: d (K,3) tip points in reference coordinates, mesh, initial F_reg,
            iteration cap, convergence tolerance, outlier-rejection method
     output: IcpResult
     """
-    raise NotImplementedError("TODO: implement icp")
+    F_reg = F_init
+    history = []
+    converged = False
+    
+    prev_rms = np.inf
+
+    for i in range(max_iter):
+        # 1. move every d_k with the currect guess
+        moved = []
+        for k in d:
+            moved_k = F_reg * vct3(k)
+            moved.append(moved_k.vec.ravel())   
+        moved = np.array(moved)
+
+        # 2. closest mesh point for every moved point
+        closest, tri_idx, dist  = closest_points_on_mesh(moved, mesh)
+
+        # median absolute deviation (MAD)
+        if reject == "mad":    
+            m = np.median(dist)
+            dist_from_m = abs(dist - m)
+            mad = np.median(dist_from_m)
+            limit = m + 3 * 1.4826 *  mad
+            inlier_mask = dist <= limit
+        else:
+            inlier_mask = np.ones(len(d), dtype=bool)
+
+        # inlier pairs
+        d_list = []
+        for row in d[inlier_mask]:
+            d_list.append(vct3(row))
+
+        closest_list = []
+        for row in closest[inlier_mask]:
+            closest_list.append(vct3(row))
+
+        # 3. better frame from the pairs
+        
+        F_reg = register_points(d_list, closest_list)
+
+        # 4. stop is rms barely changes
+        curr_rms = np.sqrt(np.mean(np.square(dist[inlier_mask])))
+        history.append(curr_rms)
+        if abs(curr_rms - prev_rms) < tol:
+            converged = True
+            break
+        prev_rms = curr_rms
+
+    normals = mesh.face_normals[tri_idx]
+    n_iter = i + 1
+
+    return IcpResult(F_reg, dist, inlier_mask ,closest, normals, n_iter, converged, history)
