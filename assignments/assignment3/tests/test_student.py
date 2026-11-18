@@ -5,17 +5,20 @@ marked TODO are yours to write.
 
 Run from assignments/assignment3:  python -m pytest tests -q
 """
-
+import os
 import numpy as np
 import pytest
 
 from pathlib import Path
 
-from src import vct3, Rot, Frame, load_sur, load_patch_boxes
+from src import vct3, Rot, Frame, load_sur, load_patch_boxes, RemoteSession
+from src.student import workflow
 
 MESH_FILE = Path(__file__).resolve().parents[1] / "data" / "ProximalFemurMeshFile.sur"
-from src.student import closest_point, icp, uncertainty, report
+BOXES_FILE = Path(__file__).resolve().parents[1] / "data" / "box-centroids-rotations-world.json"
 
+from src.student import closest_point, icp, uncertainty, report, workflow
+from uncertainty_networks.se3 import make_se3, log_se3
 
 def random_frame(rng, angle=1.0, dist=100.0):
     axis = rng.normal(size=3)
@@ -122,9 +125,59 @@ def test_report_round_trip(tmp_path):
 
 # ---------------------------------------------------------------- TODO: yours
 
-def test_registration_covariance_is_consistent():
-    pytest.skip("TODO: check that eta_true is within the predicted covariance (Mahalanobis ~ chi2_6)")
+def test_registration_covariance_is_consistent(mesh, surface_points):
+    rng = np.random.default_rng(7)
+    F_true = random_frame(rng, angle=0.5, dist=20.0)     # reference -> CT
+
+    m2 = []
+    for trial in range(30):
+        # noisy surface samples in reference coordinates
+        noisy = surface_points + rng.normal(scale=0.2, size=surface_points.shape)
+        d = apply(F_true.inv(), noisy)
+
+        res = icp.icp(d, mesh, F_true, max_iter=30, reject=None)
+        _, C_reg = uncertainty.registration_covariance(res, F_true)
+
+        # actual error, left convention -> F_true = Exp(delta) . F_reg
+        F_err = F_true * res.F_reg.inv()
+        delta = log_se3(make_se3(F_err.R.matrix, F_err.p.vec.ravel()))
+
+        m2.append(delta @ np.linalg.solve(C_reg, delta))
+
+    m2 = np.array(m2)
+    assert 3.0 < m2.mean() < 9.0, f"mean Mahalanobis {m2.mean():.2f}, expected about 6"
+    assert np.mean(m2 < 12.59) >= 0.85, f"only {np.mean(m2 < 12.59):.0%} inside the 95% region"
+
 
 
 def test_patch_plan_keeps_bodies_visible():
-    pytest.skip("TODO: check every planned patch keeps pointer and reference inside the frustum")
+    design = workflow.design_scene()
+
+    # server info from environment variables, so the token is never committed
+    url = os.environ.get("SERVER_URL", "https://painting-classical-dosage-similar.trycloudflare.com")
+    token = os.environ.get("COURSE_TOKEN", "")
+
+    # needs the course server for the nominal poses; skip if it can't be reached
+    try:
+        session = RemoteSession(url, design, seed=1, token=token, timeout=10)
+    except Exception as e:
+        pytest.skip(f"course server not reachable: {e}")
+
+    try:
+        boxes = load_patch_boxes(BOXES_FILE)
+        plan = workflow.plan_patches(boxes, n_patches=46, samples_per_patch=4)
+
+        # reference body: checked once, it doesn't move
+        ref_pts = []
+        for a in design.ref_marker_positions:
+            ref_pts.append(session.nominal_reference_pose() * a)
+        assert session.is_visible(ref_pts), "reference body outside the frustum"
+
+        # pointer checked at every patch in the plan
+        for patch_id in set(plan):
+            ptr_pts = []
+            for a in design.ptr_marker_positions:
+                ptr_pts.append(session.nominal_pointer_pose(patch_id) * a)
+            assert session.is_visible(ptr_pts), f"pointer outside the frustum at patch {patch_id}"
+    finally:
+        session.close()
