@@ -20,18 +20,7 @@ def closest_point_on_triangle(p: vct3, a: vct3, b: vct3, c: vct3) -> vct3:
     mu = x[1, 0]
     if lambda1 >= 0 and mu >= 0 and lambda1 + mu <= 1:
         return a + lambda1 * (b-a) + mu * (c-a)
-    else:
-        # check helper function (same shit)
-        # A = (b-a).vec
-        # x = np.linalg.inv(A.T@A) @ (A.T @ y)
-        # lambda1 = x[0, 0]
-        # if lambda1 >= 0 and lambda1 <= 1:
-        #     return a + lambda1 * (b-a)
-        # elif lambda1 < 0:
-        #     return a
-        # else:
-        #     return b
-        
+    else:      
         # check p against the three edges of the triangle
         q_ab = closest_points_on_segment(p, a, b)
         q_bc = closest_points_on_segment(p, b, c)
